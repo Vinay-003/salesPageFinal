@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "none",
+    "strict": true,
+    "outFile": "app.js",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "sourceMap": false,
+    "declaration": false,
+    "noEmitOnError": true,
+    "types": [],
+    "skipLibCheck": true
+  },
+  "include": ["app.ts"]
+}
