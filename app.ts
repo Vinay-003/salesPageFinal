@@ -52,9 +52,9 @@
   const SALE_DURATION_S = 6 * 60 * 60 // 6 hours
   const STORAGE_KEY = "sale-countdown-end"
   const TICK_MS = 3000
-  const DEFAULT_WINDOW_MIN = 2
+  const IS_MOBILE = window.matchMedia("(max-width: 639px)").matches
+  const DEFAULT_WINDOW_MIN = IS_MOBILE ? 1 : 2
   const ZOOM_STEP_MIN = 10
-  const BASE_RATE = 6
   const RECENT_WINDOW_MS = 5 * 60 * 1000
 
   // ── State ────────────────────────────────────────────────
@@ -297,33 +297,80 @@
   }
 
   // ============================================================
-  //  3. ORDER SIMULATION
+  //  3. ORDER SIMULATION  (time-driven sales curve)
   // ============================================================
+
+  // Cumulative fraction of total stock that should be sold by time t.
+  // Uses a hybrid curve that mimics real flash-sale behavior:
+  //   - Early burst (0-15% of time): rapid FOMO-driven buying  (~45% of stock)
+  //   - Mid phase  (15-60% of time): sustained but decelerating (~40% of stock)
+  //   - Long tail  (60-100% of time): trickle of late buyers     (~15% of stock)
+  //
+  // f(t) = w1 * fastCurve(t) + w2 * midCurve(t) + w3 * tailCurve(t)
+  // where t is in [0, 1] (fraction of sale duration elapsed)
+  function cumulativeSalesFraction(t: number): number {
+    t = clamp(t, 0, 1)
+
+    // Fast exponential curve — models the initial rush
+    // Reaches ~0.95 by t=0.15, so most of its contribution happens early
+    const fast = 1 - Math.exp(-20 * t)
+
+    // Mid sigmoid — S-curve centered around t=0.35
+    // Provides the sustained middle-phase demand
+    const mid = 1 / (1 + Math.exp(-12 * (t - 0.35)))
+
+    // Slow linear-ish tail — just t itself, gradual
+    const tail = t
+
+    // Weighted blend: 45% fast burst, 40% mid sustained, 15% tail
+    const blended = 0.45 * fast + 0.40 * mid + 0.15 * tail
+
+    // Clamp to [0, 1] — at t=1 the blend naturally ≈ 1.0
+    return clamp(blended, 0, 1)
+  }
+
+  // The "expected" cumulative sold at this moment (deterministic baseline)
+  function expectedSoldAt(elapsedS: number): number {
+    const t = clamp(elapsedS / SALE_DURATION_S, 0, 1)
+    return Math.round(cumulativeSalesFraction(t) * TOTAL_STOCK)
+  }
+
   function computeDrop(): number {
     if (ordersRemaining <= 0) return 0
 
-    const stockRatio = ordersRemaining / TOTAL_STOCK
+    const elapsedS = (Date.now() - simulationStartMs) / 1000
+    const expectedTotal = expectedSoldAt(elapsedS)
 
-    // ~5 % plateau — no sales this tick
-    if (Math.random() < 0.05) return 0
+    // How many more should have sold by now vs how many actually sold
+    let targetDrop = expectedTotal - cumulativeSold
 
-    // Decaying rate
-    const decayRate = BASE_RATE * Math.pow(stockRatio, 1.5)
-
-    // Random factor 0.8 – 1.3
-    const randomFactor = 0.8 + Math.random() * 0.5
-    let finalDrop = Math.round(decayRate * randomFactor)
-
-    // Demand spike: 5-10 % chance when stock > 30 %
-    const spikeProb = 0.05 + Math.random() * 0.05
-    if (Math.random() < spikeProb && stockRatio > 0.3) {
-      const spikeMultiplier = 2 + Math.random() // 2–3
-      finalDrop = Math.round(finalDrop * spikeMultiplier)
+    // If we're ahead of the curve, occasionally still sell 0-1
+    if (targetDrop <= 0) {
+      return Math.random() < 0.1 ? 1 : 0
     }
 
-    // Clamp: never negative, never exceeds remaining
-    finalDrop = clamp(finalDrop, 0, ordersRemaining)
-    return finalDrop
+    // Add noise: ±30% randomness so each tick isn't perfectly smooth
+    const noise = 0.7 + Math.random() * 0.6 // 0.7 – 1.3
+    let drop = Math.round(targetDrop * noise)
+
+    // Occasional demand spike: 5% chance, 1.5-2.5x multiplier
+    // More likely early in the sale (first 30% of time)
+    const t = elapsedS / SALE_DURATION_S
+    const spikeChance = t < 0.3 ? 0.08 : 0.03
+    if (Math.random() < spikeChance && drop > 0) {
+      drop = Math.round(drop * (1.5 + Math.random()))
+    }
+
+    // Occasional zero-sale tick (~5%) to mimic natural pauses
+    if (Math.random() < 0.05) return 0
+
+    // Ensure at least 1 sale if we're behind curve
+    drop = Math.max(1, drop)
+
+    // Never sell more than remaining
+    drop = Math.min(drop, ordersRemaining)
+
+    return drop
   }
 
   function initSimulation(): void {
