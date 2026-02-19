@@ -20,10 +20,10 @@
     // ── Constants ────────────────────────────────────────────
     const GALLERY_IMAGES = [
         "https://theobesitykiller.com/cdn/shop/files/Hero_25_Nov_1_1024x.webp?v=1766510104",
-        "https://theobesitykiller.com/cdn/shop/files/Back_1_1024x.webp?v=1766510104",
-        "https://theobesitykiller.com/cdn/shop/files/Both_together_25_Nov_2_1024x.webp?v=1766510104",
-        "https://theobesitykiller.com/cdn/shop/files/Kadha_25_Nov_1_1024x.webp?v=1766510104",
-        "https://theobesitykiller.com/cdn/shop/files/Powder_25_Nov_1_1024x.webp?v=1766510104",
+        "https://theobesitykiller.com/cdn/shop/files/How_it_works_02351f73-b5eb-4c5e-876a-da648b7d8fbe_1024x.webp?v=1766510104",
+        "https://theobesitykiller.com/cdn/shop/files/How_it_works_02351f73-b5eb-4c5e-876a-da648b7d8fbe_1024x.webp?v=1766510104",
+        "https://theobesitykiller.com/cdn/shop/files/How_it_works_02351f73-b5eb-4c5e-876a-da648b7d8fbe_1024x.webp?v=1766510104",
+        "https://theobesitykiller.com/cdn/shop/files/How_it_works_02351f73-b5eb-4c5e-876a-da648b7d8fbe_1024x.webp?v=1766510104",
     ];
     function thumbUrl(src) {
         return src.replace("_1024x", "_100x100");
@@ -40,6 +40,7 @@
     const DEFAULT_WINDOW_MIN = IS_MOBILE ? 1 : 2;
     const ZOOM_STEP_MIN = 10;
     const RECENT_WINDOW_MS = 5 * 60 * 1000;
+    const SALES_30MIN_WINDOW_MS = 30 * 60 * 1000;
     // ── State ────────────────────────────────────────────────
     let currentImageIdx = 0;
     let selectedPlan = "15-day";
@@ -51,18 +52,12 @@
     const dropHistory = [];
     const chartData = [];
     let simulationStartMs = Date.now();
-    let chartDisplayMaxOrders = 0;
+    // (chartDisplayMaxOrders removed — Y axis now snaps to visible data)
     let currentWindowMin = DEFAULT_WINDOW_MIN;
     let isAllMode = false;
     let lastTickMinute = 0;
-    const PURCHASE_PROFILES = [
-        { name: "Priya", city: "Pune", avatarUrl: "https://i.pravatar.cc/80?img=5" },
-        { name: "Rahul", city: "Jaipur", avatarUrl: "https://i.pravatar.cc/80?img=12" },
-        { name: "Neha", city: "Delhi", avatarUrl: "https://i.pravatar.cc/80?img=32" },
-        { name: "Arjun", city: "Mumbai", avatarUrl: "https://i.pravatar.cc/80?img=15" },
-        { name: "Ananya", city: "Bengaluru", avatarUrl: "https://i.pravatar.cc/80?img=47" },
-    ];
-    const DEFAULT_AVATAR = "https://i.pravatar.cc/80?img=5";
+    let latestChartPoints = [];
+    let latestChartData = [];
     // ── DOM references ───────────────────────────────────────
     // (resolved after DOMContentLoaded)
     let galleryMain;
@@ -90,8 +85,7 @@
     let chartZoomInBtn;
     let chartZoomOutBtn;
     let chartWindowLabel;
-    let lastPurchaseText;
-    let lastPurchaseAvatar;
+    let sales30Min;
     let scrollTopBtn;
     let siteHeader;
     // ============================================================
@@ -325,9 +319,7 @@
             const recentTotal = dropHistory
                 .filter((d) => d.timestamp >= recentCutoff)
                 .reduce((s, d) => s + d.drop, 0);
-            if (drop > 0) {
-                updateLastPurchaseTicker(drop);
-            }
+            updateSalesLast30Min(now);
             // Update DOM
             updateStockUI(recentTotal);
             renderChart();
@@ -344,7 +336,7 @@
         stockCount.textContent = String(ordersRemaining);
         totalOrdered.textContent = String(cumulativeSold);
         chartRemaining.textContent = String(ordersRemaining);
-        chartRecent.textContent = String(recentOrders);
+        if (chartRecent) chartRecent.textContent = String(recentOrders);
         // Stock bar
         const pct = (ordersRemaining / TOTAL_STOCK) * 100;
         stockBarFill.style.width = pct + "%";
@@ -411,7 +403,6 @@
         else {
             return; // already at minimum
         }
-        chartDisplayMaxOrders = 0;
         updateZoomButtonsState();
         renderChart();
     }
@@ -435,19 +426,15 @@
                 currentWindowMin = nextWindow;
             }
         }
-        chartDisplayMaxOrders = 0;
         updateZoomButtonsState();
         renderChart();
     }
-    function randomInt(min, max) {
-        return Math.floor(Math.random() * (max - min + 1)) + min;
-    }
-    function updateLastPurchaseTicker(drop) {
-        const profile = PURCHASE_PROFILES[randomInt(0, PURCHASE_PROFILES.length - 1)];
-        const kits = clamp(randomInt(1, Math.max(1, Math.min(drop, 3))), 1, 3);
-        lastPurchaseAvatar.src = profile.avatarUrl;
-        lastPurchaseAvatar.alt = `${profile.name} profile`;
-        lastPurchaseText.textContent = `${profile.name} from ${profile.city} just ordered ${kits} ${kits === 1 ? "kit" : "kits"}`;
+    function updateSalesLast30Min(now) {
+        const cutoff = now - SALES_30MIN_WINDOW_MS;
+        const total = dropHistory
+            .filter((d) => d.timestamp >= cutoff)
+            .reduce((s, d) => s + d.drop, 0);
+        sales30Min.textContent = `${total} kits sold in last 30 min`;
     }
     // ============================================================
     //  4. SVG CHART  (smooth line + gradient area fill)
@@ -459,8 +446,13 @@
         if (visibleData.length < 2)
             return;
         const svg = chartSvg;
+        const isMobileChart = window.matchMedia("(max-width: 639px)").matches;
         const W = 800;
-        const H = 300;
+        const H = isMobileChart ? 420 : 280;
+        const currentVBH = svg.viewBox.baseVal.height;
+        if (currentVBH !== H) {
+            svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+        }
         const PAD_LEFT = 52;
         const PAD_RIGHT = 15;
         const PAD_TOP = 20;
@@ -472,31 +464,30 @@
         const nowMinute = lastTickMinute;
         let windowSpan;
         if (isAllMode) {
-            windowSpan = Math.max(nowMinute, 1);
+            windowSpan = Math.max(nowMinute, 0.1);
         }
         else {
-            windowSpan = currentWindowMin;
+            // Don't show a wider window than we have data for —
+            // shrink to the actual data span so the line fills the chart width.
+            const dataSpan = visibleData[visibleData.length - 1].minuteOffset - visibleData[0].minuteOffset;
+            const effectiveSpan = Math.max(dataSpan, 0.1); // avoid zero-division
+            windowSpan = Math.min(currentWindowMin, effectiveSpan * 1.05); // 5% breathing room
         }
-        // Map data points to relative minutes from now
-        // rel = 0 means "now" (right edge), rel = windowSpan means "oldest visible" (left edge)
-        // x position: 0m (now) at right, windowSpan at left
+        // Map data points to SVG x-coordinates.
+        // The LATEST data point maps to the right edge, the OLDEST to the left edge.
+        // This ensures the line always stretches across the full chart width.
+        const dataMinMinute = visibleData[0].minuteOffset;
+        const dataMaxMinute = visibleData[visibleData.length - 1].minuteOffset;
+        const dataRange = Math.max(dataMaxMinute - dataMinMinute, 0.001);
         function xOf(minuteOffset) {
-            const rel = nowMinute - minuteOffset; // how many minutes ago
-            return PAD_LEFT + (1 - rel / windowSpan) * plotW;
+            const frac = (minuteOffset - dataMinMinute) / dataRange;
+            return PAD_LEFT + frac * plotW;
         }
         // Use real data only — no synthetic points
         const plotData = visibleData;
-        // Determine Y axis range
+        // Determine Y axis range — tight fit to visible data, small headroom only
         const rawMaxOrders = Math.max(...plotData.map((d) => d.orders), 1);
-        const targetMaxOrders = rawMaxOrders * 1.15;
-        if (chartDisplayMaxOrders === 0) {
-            chartDisplayMaxOrders = targetMaxOrders;
-        }
-        else {
-            const easing = targetMaxOrders > chartDisplayMaxOrders ? 0.35 : 0.08;
-            chartDisplayMaxOrders += (targetMaxOrders - chartDisplayMaxOrders) * easing;
-        }
-        const maxOrders = Math.max(chartDisplayMaxOrders, 1);
+        const maxOrders = Math.max(Math.ceil(rawMaxOrders * 1.1), 1);
         function yOf(orders) {
             return PAD_TOP + plotH - (orders / maxOrders) * plotH;
         }
@@ -511,6 +502,8 @@
             })
             : plotData.map((d) => d.orders);
         const points = plotData.map((d, i) => ({ x: xOf(d.minuteOffset), y: yOf(plotOrders[i]) }));
+        latestChartPoints = points;
+        latestChartData = plotData;
         function catmullRomToBezier(pts) {
             if (pts.length < 2)
                 return "";
@@ -548,7 +541,21 @@
         // Labels show "Xmin" where X is minutes ago, 0min at right edge
         let xLabels = "";
         const xTicks = []; // values in "minutes ago"
-        if (!isAllMode && currentWindowMin <= 2) {
+        // Determine visible span in "minutes ago" terms
+        const oldestMinsAgo = nowMinute - dataMinMinute;
+        const visibleSpanMin = Math.max(oldestMinsAgo, 0.1);
+        if (visibleSpanMin <= 2.5) {
+            // Short data: generate ticks at nice intervals within the actual data range
+            // Always include 0 (now). Add ticks at 0.5min steps if data < 1m, 1min steps otherwise.
+            const step = visibleSpanMin <= 1 ? 0.5 : 1;
+            for (let t = 0; t <= oldestMinsAgo + 0.01; t += step) {
+                xTicks.push(Math.round(t * 10) / 10);
+            }
+            // Ensure 0 is first
+            if (xTicks[0] !== 0)
+                xTicks.unshift(0);
+        }
+        else if (!isAllMode && currentWindowMin <= 2) {
             // Default 2m window: show exactly 2, 1, 0
             for (let i = currentWindowMin; i >= 0; i--) {
                 xTicks.push(i);
@@ -586,7 +593,8 @@
             const actualMinuteOffset = nowMinute - minsAgo;
             const x = xOf(actualMinuteOffset);
             if (x >= PAD_LEFT - 1 && x <= W - PAD_RIGHT + 1) {
-                xLabels += `<text x="${x}" y="${H - 6}" text-anchor="middle" class="chart-axis-text">${minsAgo}min</text>`;
+                const label = minsAgo === Math.floor(minsAgo) ? `${minsAgo}min` : `${minsAgo.toFixed(1)}m`;
+                xLabels += `<text x="${x}" y="${H - 6}" text-anchor="middle" class="chart-axis-text">${label}</text>`;
                 xLabels += `<line x1="${x}" y1="${PAD_TOP}" x2="${x}" y2="${baseline}" stroke="#e8e8e8" stroke-width="0.5"/>`;
             }
         }
@@ -598,14 +606,7 @@
             yLabels += `<text x="${PAD_LEFT - 8}" y="${y + 4}" text-anchor="end" class="chart-axis-text">${v}</text>`;
             yLabels += `<line x1="${PAD_LEFT}" y1="${y}" x2="${W - PAD_RIGHT}" y2="${y}" stroke="#e8e8e8" stroke-width="0.5"/>`;
         }
-        // Build dots for hover hit-targets
-        let dots = "";
-        const visibleStartIdx = Math.max(0, chartData.indexOf(visibleData[0]));
-        plotData.forEach((_, i) => {
-            const p = points[i];
-            dots += `<circle cx="${p.x}" cy="${p.y}" r="12" fill="transparent" class="chart-hit" data-idx="${visibleStartIdx + i}"/>`;
-            dots += `<circle cx="${p.x}" cy="${p.y}" r="3" fill="rgb(255,95,21)" stroke="#fff" stroke-width="1.5" pointer-events="none"/>`;
-        });
+        // No dots: keep the line clean
         svg.innerHTML = `
       <defs>
         <linearGradient id="area-grad" x1="0" y1="0" x2="0" y2="1">
@@ -617,46 +618,51 @@
       ${yLabels}
       <path d="${areaPath}" fill="url(#area-grad)"/>
       <path d="${linePath}" fill="none" stroke="rgb(255,95,21)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-      ${dots}
+      
     `;
     }
     function initChartTooltip() {
-        chartSvg.addEventListener("mouseover", (e) => {
-            const target = e.target;
-            if (!target.classList.contains("chart-hit"))
+        chartSvg.addEventListener("mousemove", (e) => {
+            const svgRect = chartSvg.getBoundingClientRect();
+            const rect = chartWrapper.getBoundingClientRect();
+            const vbW = chartSvg.viewBox.baseVal.width || 800;
+            const vbH = chartSvg.viewBox.baseVal.height || 300;
+            const relX = (e.clientX - svgRect.left) / svgRect.width;
+            const relY = (e.clientY - svgRect.top) / svgRect.height;
+            if (relX < 0 || relX > 1 || relY < 0 || relY > 1)
                 return;
-            const idx = parseInt(target.getAttribute("data-idx") || "0", 10);
-            const d = chartData[idx];
+            const xInSvg = relX * vbW;
+            const yInSvg = relY * vbH;
+            // Find nearest point by x distance
+            const points = latestChartPoints;
+            if (points.length === 0)
+                return;
+            let closestIdx = 0;
+            let bestDist = Infinity;
+            for (let i = 0; i < points.length; i++) {
+                const dx = Math.abs(points[i].x - xInSvg);
+                if (dx < bestDist) {
+                    bestDist = dx;
+                    closestIdx = i;
+                }
+            }
+            const d = latestChartData[closestIdx];
             if (!d)
                 return;
-            const circle = target;
-            const rect = chartWrapper.getBoundingClientRect();
-            const svgRect = chartSvg.getBoundingClientRect();
-            const cx = parseFloat(circle.getAttribute("cx") || "0");
-            const cy = parseFloat(circle.getAttribute("cy") || "0");
-            // Convert SVG coords to pixel coords
-            const scaleX = svgRect.width / 800;
-            const scaleY = svgRect.height / 300;
-            const px = cx * scaleX + svgRect.left - rect.left;
-            const py = cy * scaleY + svgRect.top - rect.top;
+            const px = xInSvg * (svgRect.width / vbW) + svgRect.left - rect.left;
+            const py = yInSvg * (svgRect.height / vbH) + svgRect.top - rect.top;
             chartTooltip.textContent = `${d.orders} orders at ${d.minuteOffset.toFixed(1)}m | ${d.remaining} left`;
             chartTooltip.style.left = px + "px";
             chartTooltip.style.top = py + "px";
             chartTooltip.classList.add("visible");
         });
-        chartSvg.addEventListener("mouseout", (e) => {
-            const target = e.target;
-            if (target.classList.contains("chart-hit")) {
-                chartTooltip.classList.remove("visible");
-            }
+        chartSvg.addEventListener("mouseleave", () => {
+            chartTooltip.classList.remove("visible");
         });
     }
     function initChartControls() {
         chartZoomInBtn.addEventListener("click", zoomInWindow);
         chartZoomOutBtn.addEventListener("click", zoomOutWindow);
-        lastPurchaseAvatar.addEventListener("error", () => {
-            lastPurchaseAvatar.src = DEFAULT_AVATAR;
-        });
         updateZoomButtonsState();
     }
     // ============================================================
@@ -791,15 +797,14 @@
         chartZoomInBtn = $("chart-zoom-in");
         chartZoomOutBtn = $("chart-zoom-out");
         chartWindowLabel = $("chart-window-label");
-        lastPurchaseText = $("last-purchase-text");
-        lastPurchaseAvatar = $("last-purchase-avatar");
+        sales30Min = $("sales-30min");
         initStars();
         initCountdown();
         initGallery();
         initPlans();
         initCoupon();
         initChartControls();
-        updateLastPurchaseTicker(2);
+        updateSalesLast30Min(Date.now());
         initSimulation();
         initChartTooltip();
         initScrollTop();

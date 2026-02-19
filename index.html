@@ -93,10 +93,10 @@
             <div class="sales-card-header">
               <div class="sales-card-header-left">
                 <!-- <span class="sale-live-dot"></span> -->
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                <img src="public/canvas4.png" alt="Sale badge" class="sales-logo" loading="lazy">
                 <span>MEGA SALE</span>
               </div>
-              <span class="sales-card-header-right">Burn Fat. Feel Light.</span>
+              <span class="sales-card-header-right">Burn Fat.<br class="header-br"> Feel Light.</span>
               <div class="header-shimmer"></div>
             </div>
             <div class="sales-card-body">
@@ -268,15 +268,11 @@
                 <span class="chart-stat-label">Units remaining</span>
                 <span class="chart-stat-value" id="chart-remaining">500</span>
               </div>
-              <div class="chart-stat-pill">
-                <span class="chart-stat-label">Orders in last 5 min</span>
-                <span class="chart-stat-value" id="chart-recent">0</span>
-              </div>
             </div>
             <div class="chart-controls">
-              <button class="chart-zoom-btn" id="chart-zoom-in" type="button" aria-label="Zoom in chart window">Zoom In</button>
+              <button class="chart-zoom-btn" id="chart-zoom-in" type="button" aria-label="Zoom in chart window">+</button>
               <span class="chart-window-label" id="chart-window-label">2m</span>
-              <button class="chart-zoom-btn" id="chart-zoom-out" type="button" aria-label="Zoom out chart window">Zoom Out</button>
+              <button class="chart-zoom-btn" id="chart-zoom-out" type="button" aria-label="Zoom out chart window">−</button>
             </div>
           </div>
         </div>
@@ -285,9 +281,13 @@
           <div class="chart-tooltip" id="chart-tooltip"></div>
         </div>
         <div class="last-purchase-ticker">
-          <img src="https://i.pravatar.cc/80?img=5" alt="Recent buyer profile" id="last-purchase-avatar" class="last-purchase-avatar">
-          <span class="last-purchase-dot"></span>
-          <span class="last-purchase-text" id="last-purchase-text">Priya from Pune just ordered 2 kits</span>
+          <div class="ticker-avatars">
+            <span class="ticker-avatar" style="background:#f97316">A</span>
+            <span class="ticker-avatar" style="background:#10b981">R</span>
+            <span class="ticker-avatar" style="background:#6366f1">P</span>
+            <span class="ticker-avatar" style="background:#ec4899">S</span>
+          </div>
+          <span class="last-purchase-text" id="sales-30min">20 kits sold in last 30 min</span>
         </div>
       </div>
     </section>
